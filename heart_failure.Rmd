@@ -1,0 +1,610 @@
+---
+title: "heart_failure_project"
+author: "William Kubin"
+date: "11/12/2021"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+# Data import
+```
+
+## Analysis of Heart Failure Data 
+
+This is an R Markdown document illustrating the prediction of Heart Failure in people. The data has 299 observations and 13 variables namely age, anemia, creatinine phosphokinase, diabetes, ejection fraction, high blood pressure, platelets, serum creatinine, serum sodium, sex, smoking, time and the target variable DEATH EVENT. 
+
+1. age : Age of individual.
+2. anemia : Reduction of red blood cells or hemoglobin (1: True, 0: False).
+3. creatinine_phosphokinase : Level of CPK enzyme in blood.
+4. diabetes : Whether individual has diabetes (1: True, 0: False).
+5. ejection_fraction : Percentage of blood leaving the heart at each contraction.
+6. high_blood_pressure : Whether individual has hypertension (1: True, 0: False).
+7. platelets : Platelets in the blood.
+8. serum_creatinine : Amount of serum creatinine in blood.
+9. serum_sodium : Amount of serum sodium in blood.
+10. sex : Whether male or female (1: Man, 0: Woman).
+11. smoking : Whether individual smokes or not (1: True, 0: False).
+12. time : Follow-up days.
+13. DEATH_EVENT : Whether individual died during follow-up period (1: True, 0: False).
+
+
+
+Codes below indicate the importation of the data in R and a few rows of the data given all the variables. 
+
+```{r}
+setwd("/Users/paa.willie/myStuff/GitHub_Projects/Heart_failure_project")
+
+heart_failure_data = read.csv("heart_failure_clinical_records_dataset.csv", header = TRUE)
+head(heart_failure_data)
+```
+
+Let's now take a look at some descriptive statistics to get an overview of the variables in the data.
+```{r}
+summary(heart_failure_data)
+```
+
+### Histogram plots of the variables
+
+```{r}
+library(psych)
+multi.hist(heart_failure_data) 
+dataM = data.matrix(heart_failure_data)
+#boxplot.matrix(dataM, use.cols = T)
+#boxplot(heart_failure_data$age, heart_failure_data$DEATH_EVENT)
+```
+
+```{r DEATH EVENT}
+library(dplyr)
+features <- c("anaemia", "diabetes", "high_blood_pressure", "sex", "smoking", "DEATH_EVENT")
+HF_data <- heart_failure_data %>% mutate_at(features, as.factor)
+```
+
+
+### Distribution of Numeric Features against target variable (DEATH EVENT)
+1. AGE vs DEATH_EVENT
+```{r}
+library(ggplot2)
+library(ggthemes)
+library(patchwork)
+library(stringr)
+
+p <- ggplot(HF_data, aes(x = age)) + 
+  geom_histogram(binwidth = 5, colour = "white", alpha = 0.5) +
+  geom_density(eval(bquote(aes(y = ..count.. * 5))), alpha = 0.25) +
+  scale_x_continuous(breaks = seq(40, 100, 10)) +
+  geom_vline(xintercept = median(HF_data$age), linetype="longdash") +
+  annotate(geom = "text",
+           x = max(HF_data$age)-5, y = 50,
+           label = str_c("Min.     : ", min(HF_data$age),
+                         "\nMedian : ", median(HF_data$age),
+                         "\nMean    : ", round(mean(HF_data$age), 1),
+                         "\nMax.    : ", max(HF_data$age))) +
+  labs(title = "Age distribution") +
+  theme_minimal(base_size = 12)
+# binwidth can be calculated from "diff(range(df$age))/20"
+
+q <- ggplot(HF_data, aes(x = age, fill = DEATH_EVENT)) + 
+  geom_density(alpha = 0.64) +
+  scale_fill_manual(values = c("red", "blue"),
+                    name = "DEATH_EVENT",
+                    labels = c("False", "True")) +
+  scale_x_continuous(breaks = seq(40, 100, 10)) +
+
+  geom_vline(xintercept = median(filter(HF_data, DEATH_EVENT == 0)$age), linetype="longdash") +
+  geom_vline(xintercept = median(filter(HF_data, DEATH_EVENT == 1)$age), linetype="longdash") +
+  annotate(geom = "text",
+           x = max(HF_data$age)-10, y = 0.03,
+           label = str_c("Survived median: ", median(filter(HF_data, DEATH_EVENT == 0)$age),
+                         "\nDead median: ", median(filter(HF_data, DEATH_EVENT == 1)$age))) +
+
+  labs(title = "Relationship: Age vs DEATH_EVENT") +
+  theme_minimal(base_size = 12) +
+  theme(legend.position = "bottom", legend.direction = "horizontal")
+
+library(data.table)
+breaks.in.Age <- c(40,45,50,55,60,65,70,75,80,85,90,200)
+labels.Age <- c("Below 45","45-49","50-54","55-59","60-64","65-69",
+               "70-74","75-79","80-84","85-89","Above 89")
+
+mm <- heart_failure_data
+setDT(mm)[ , groups.Age := cut(age, 
+                                breaks = breaks.in.Age, 
+                                right = FALSE, 
+                                labels = labels.Age)]
+
+Ages = mm %>% group_by(groups.Age) %>% count() %>% pull(n)
+Ages.percent = round((Ages/sum(Ages))*100, 1)
+
+death.Ages = mm %>% filter(DEATH_EVENT==1) %>% group_by(groups.Age) %>% count() %>% pull(n)
+death.Age.percent = round((death.Ages/sum(death.Ages))*100, 1)
+
+perc.death = round((death.Ages/Ages)*100, 1)
+
+table.Ages.stats = cbind(labels.Age, Ages, death.Ages, perc.death)
+colnames(table.Ages.stats) = c("Age Groups (Years)", "Number of Patients", 
+                        "Number of Deaths",
+                        "Percentage of Deaths (%)")
+table.Ages.stats
+
+p 
+q
+
+
+
+```
+
+Observation: The modal age of patients is around 60 years old. Also, the younger your age (before 68years old), the more difficulty to die. After a patient grows beyond about 68 years, the probability for them to die of heart failure increases rapidly. These results are indicated in the table showing percentages of death within different age groups.
+
+
+2. CREATININE PHOSPHOKINASE vs DEATH_EVENT
+```{r}
+
+V <- ggplot(HF_data, aes(x = creatinine_phosphokinase)) + 
+  geom_histogram(binwidth = 100, colour = "white", alpha = 0.5) +
+  geom_density(eval(bquote(aes(y = ..count.. * 100))), alpha = 0.25) +
+  geom_vline(xintercept = median(HF_data$creatinine_phosphokinase), linetype="longdash") +
+  annotate(geom = "text",
+           x = max(HF_data$creatinine_phosphokinase)-1000, y = 75,
+           label = str_c("Min.     : ", min(HF_data$creatinine_phosphokinase),
+                         "\nMedian : ", median(HF_data$creatinine_phosphokinase),
+                         "\nMean    : ", round(mean(HF_data$creatinine_phosphokinase), 1),
+                         "\nMax.    : ", max(HF_data$creatinine_phosphokinase))) +
+  labs(title = "creatinine_phosphokinase distribution") +
+  theme_minimal(base_size = 12)
+
+W <- ggplot(HF_data, aes(x = creatinine_phosphokinase, fill = DEATH_EVENT)) +
+  geom_density(alpha = 0.64) +
+  scale_fill_manual(values = c("red", "blue"),
+                    name = "DEATH_EVENT",
+                    labels = c("False", "True")) +
+  geom_vline(xintercept = median(filter(HF_data, DEATH_EVENT == 0)$creatinine_phosphokinase), linetype="longdash") +
+  geom_vline(xintercept = median(filter(HF_data, DEATH_EVENT == 1)$creatinine_phosphokinase), linetype="longdash") +
+  annotate(geom = "text",
+           x = max(HF_data$creatinine_phosphokinase)-1400, y = 0.0015,
+           label = str_c("Survived Median: ", median(filter(HF_data, DEATH_EVENT == 0)$creatinine_phosphokinase),
+                         "\nDead Median: ", median(filter(HF_data, DEATH_EVENT == 1)$creatinine_phosphokinase))) +
+
+  labs(title = "Relationship: Creatinine Phosphokinase vs DEATH_EVENT") +
+  theme_minimal(base_size = 12) +
+  theme(legend.position = "bottom", legend.direction = "horizontal")
+
+Z <- ggplot(HF_data, aes(x = creatinine_phosphokinase, fill = DEATH_EVENT)) +
+  geom_density(alpha = 0.64) +
+  scale_fill_manual(values = c("red", "blue"),
+                    name = "DEATH_EVENT",
+                    labels = c("False", "True")) +
+  geom_vline(xintercept = median(filter(HF_data, DEATH_EVENT == 0)$creatinine_phosphokinase), linetype="longdash") +
+  geom_vline(xintercept = median(filter(HF_data, DEATH_EVENT == 1)$creatinine_phosphokinase), linetype="longdash") +
+  annotate(geom = "text",
+           x = max(HF_data$creatinine_phosphokinase)-4500, y = 0.7,
+           label = str_c("Survived Median: ", median(filter(HF_data, DEATH_EVENT == 0)$creatinine_phosphokinase),
+                         "\nDead Median: ", median(filter(HF_data, DEATH_EVENT == 1)$creatinine_phosphokinase))) +
+
+  labs(title = "Relationship: Creatinine Phosphokinase vs DEATH_EVENT (ZOOMED)") +
+  theme_minimal(base_size = 12) +
+  theme(legend.position = "bottom", legend.direction = "horizontal") +
+  scale_x_log10() +
+  annotation_logticks()
+
+V 
+W
+Z
+
+```
+
+Observation: The median Creatinine Phosphokinase of patients is around 250 mcg/L and the mean is 581.8 mcg/L. Its distribution is skewed on the right. The minimum observation is 23 mcg/L whereas the maximum observation is 7861 mcg/L which is about 13 times the average of Creatinine Phosphokinase. We observe a little difference in the median.
+
+
+2. EJECTION FRACTION vs DEATH EVENT
+```{r}
+p <- ggplot(HF_data, aes(x = ejection_fraction)) + 
+  geom_histogram(binwidth = 1, colour = "white", alpha = 0.5) +
+  geom_density(eval(bquote(aes(y = ..count.. * 1))), alpha = 0.25) +
+  scale_x_continuous(breaks = seq(10, 80, 10)) +
+  geom_vline(xintercept = median(HF_data$ejection_fraction), linetype="longdash") +
+  annotate(geom = "text",
+           x = max(HF_data$ejection_fraction)-6, y = 45,
+           label = str_c("Min.     : ", min(HF_data$ejection_fraction),
+                         "\nMedian : ", median(HF_data$ejection_fraction),
+                         "\nMean    : ", round(mean(HF_data$ejection_fraction), 1),
+                         "\nMax.    : ", max(HF_data$ejection_fraction))) +
+  labs(title = "Ejection Fraction Distribution") +
+  theme_minimal(base_size = 12)
+
+q <- ggplot(HF_data, aes(x = ejection_fraction, fill = DEATH_EVENT)) + 
+  geom_density(alpha = 0.64) +
+  scale_fill_manual(values = c("red", "blue"),
+                    name = "DEATH_EVENT",
+                    labels = c("False", "True")) +
+  scale_x_continuous(breaks = seq(10, 80, 10)) +
+
+  geom_vline(xintercept = median(filter(HF_data, DEATH_EVENT == 0)$ejection_fraction), linetype="longdash") +
+  geom_vline(xintercept = median(filter(HF_data, DEATH_EVENT == 1)$ejection_fraction), linetype="longdash") +
+  annotate(geom = "text",
+           x = max(HF_data$age)-26, y = 0.045,
+           label = str_c("Survived Median: ", median(filter(HF_data, DEATH_EVENT == 0)$ejection_fraction),
+                         "\nDead Median: ", median(filter(HF_data, DEATH_EVENT == 1)$ejection_fraction))) +
+
+  labs(title = "Relationship: Ejection Fraction vs DEATH EVENT") +
+  theme_minimal(base_size = 12) +
+  theme(legend.position = "bottom", legend.direction = "horizontal")
+
+p
+q
+```
+
+Observation: The median and mean Ejection Fraction of patients is approximately 38%.The distribution of Ejection Fraction looks discrete, not continuous. We observe some difference between median of survival and death. The values for death is highly distributed around 30% and then diminishes slowly. 
+
+
+3. PLATELETS vs DEATH EVENT
+```{r}
+a <- ggplot(HF_data, aes(x = platelets)) + 
+  geom_histogram(binwidth = 20000, colour = "white", alpha = 0.5) +
+  geom_density(eval(bquote(aes(y = ..count.. * 20000))), alpha = 0.25) +
+  geom_vline(xintercept = median(HF_data$platelets), linetype="longdash") +
+  annotate(geom = "text",
+           x = max(HF_data$platelets)-100000, y = 40,
+           label = str_c("Min.     : ", min(HF_data$platelets),
+                         "\nMedian : ", median(HF_data$platelets),
+                         "\nMean    : ", round(mean(HF_data$platelets), 1),
+                         "\nMax.    : ", max(HF_data$platelets))) +
+  labs(title = "DISTRIBUTION OF PLATELETS") +
+  theme_minimal(base_size = 12)
+
+b <- ggplot(HF_data, aes(x = platelets, fill = DEATH_EVENT)) +
+  geom_density(alpha = 0.64) +
+  scale_fill_manual(values = c("red", "blue"),
+                    name = "DEATH EVENT",
+                    labels = c("False", "True")) +
+
+  geom_vline(xintercept = median(filter(HF_data, DEATH_EVENT == 0)$platelets), linetype="longdash") +
+  geom_vline(xintercept = median(filter(HF_data, DEATH_EVENT == 1)$platelets), linetype="longdash") +
+  annotate(geom = "text",
+           x = max(HF_data$platelets)-180000, y = 0.000005,
+           label = str_c("Survived Median: ", median(filter(HF_data, DEATH_EVENT == 0)$platelets),
+                         "\nDead Median: ", median(filter(HF_data, DEATH_EVENT == 1)$platelets))) +
+
+  labs(title = "Relationship: PLATELETS vs DEATH EVENT") +
+  theme_minimal(base_size = 12) +
+  theme(legend.position = "bottom", legend.direction = "horizontal")
+
+a
+b
+
+```
+
+Observation: The distribution of platelets looks symmetric (close to bell-shape). Meanwhile, survivors have slightly higher platelet counts than those with high propensity to die.
+
+4. SERUM CREATININE vs DEATH EVENT
+```{r}
+a <- ggplot(HF_data, aes(x = serum_creatinine)) + 
+  geom_histogram(binwidth = 0.2, colour = "white", alpha = 0.5) +
+  geom_density(eval(bquote(aes(y = ..count.. * 0.2))), alpha = 0.25) +
+  geom_vline(xintercept = median(HF_data$serum_creatinine), linetype="longdash") +
+  annotate(geom = "text",
+           x = max(HF_data$serum_creatinine)-1, y = 70,
+           label = str_c("Min.     : ", min(HF_data$serum_creatinine),
+                         "\nMedian : ", median(HF_data$serum_creatinine),
+                         "\nMean    : ", round(mean(HF_data$serum_creatinine), 1),
+                         "\nMax.    : ", max(HF_data$serum_creatinine))) +
+  labs(title = "Serum Creatinine distribution") +
+  theme_minimal(base_size = 12)
+
+b <- ggplot(HF_data, aes(x = serum_creatinine, fill = DEATH_EVENT)) +
+  geom_density(alpha = 0.64) +
+  scale_fill_manual(values = c("red", "green"),
+                    name = "DEATH EVENT",
+                    labels = c("False", "True")) +
+
+  geom_vline(xintercept = median(filter(HF_data, DEATH_EVENT == 0)$serum_creatinine), linetype="longdash") +
+  geom_vline(xintercept = median(filter(HF_data, DEATH_EVENT == 1)$serum_creatinine), linetype="longdash") +
+    geom_text(label = "Median \nvalue \nfor \nSurvival", x = 1, y = 0.5, size = 3) + 
+  geom_text(label = "Median \nvalue \nfor \nDeath", x = 1.3, y = 1, size = 2.5) +
+  
+  annotate(geom = "text",
+           x = max(HF_data$serum_creatinine)-1.6, y = 1.25,
+           label = str_c("Survived Median: ", median(filter(HF_data, DEATH_EVENT == 0)$serum_creatinine),
+                         "\nDead Median: ", median(filter(HF_data, DEATH_EVENT == 1)$serum_creatinine))) +
+
+  labs(title = "Relationship: Serum Creatinine vs DEATH_EVENT") +
+  theme_minimal(base_size = 12) +
+  theme(legend.position = "bottom", legend.direction = "horizontal")
+
+c <- ggplot(HF_data, aes(x = serum_creatinine, fill = factor(DEATH_EVENT))) +
+  geom_density(alpha = 0.64) +
+  scale_fill_manual(values = c("red", "green"),
+                    name = "DEATH EVENT",
+                    labels = c("False", "True")) +
+
+  geom_vline(xintercept = median(filter(HF_data, DEATH_EVENT == 0)$serum_creatinine), linetype="longdash") +
+  geom_vline(xintercept = median(filter(HF_data, DEATH_EVENT == 1)$serum_creatinine), linetype="longdash") + 
+  geom_text(label = "Median \nvalue \nfor \nSurvival", x = log(1), y = 3, size = 3) + 
+  geom_text(label = "Median \nvalue \nfor \nDeath", x = 1.3, y = 1, size = 2.5) +
+  annotate(geom = "text",
+           x = max(HF_data$serum_creatinine)-3.2, y = 3,
+           label = str_c("Survived Median: ", median(filter(HF_data, DEATH_EVENT == 0)$serum_creatinine),
+                         "\nDead Median: ", median(filter(HF_data, DEATH_EVENT == 1)$serum_creatinine))) +
+
+  labs(title = "Relationship: Serum Creatinine vs DEATH_EVENT (log scale)") +
+  theme_minimal(base_size = 12) +
+  theme(legend.position = "bottom", legend.direction = "horizontal") +
+  scale_x_log10()
+
+a
+b
+c
+
+```
+Observation: Distribution of serum creatinine is skewed to the left. The values of the survivors are clustered around the median. This is not so for the values of death where there are a lot of cases that exceed its median (i.e. 1.3).
+
+
+5. SERUM SODIUM vs DEATH EVENT
+```{r}
+X <- ggplot(HF_data, aes(x = serum_sodium)) + 
+  geom_histogram(binwidth = 1, colour = "white", alpha = 0.5) +
+  geom_density(eval(bquote(aes(y = ..count.. * 1))), alpha = 0.25) +
+  scale_x_continuous(breaks = seq(110, 150, 10)) +
+  geom_vline(xintercept = median(HF_data$serum_sodium), linetype="longdash") +
+  annotate(geom = "text",
+           x = min(HF_data$serum_sodium)+4, y = 36,
+           label = str_c("Min.     : ", min(HF_data$serum_sodium),
+                         "\nMedian : ", median(HF_data$serum_sodium),
+                         "\nMean    : ", round(mean(HF_data$serum_sodium), 1),
+                         "\nMax.    : ", max(HF_data$serum_sodium))) +
+  labs(title = "Serum Sodium Distribution") +
+  theme_minimal(base_size = 12)
+
+Y <- ggplot(HF_data, aes(x = serum_sodium, fill = DEATH_EVENT)) +
+  geom_density(alpha = 0.64) +
+  scale_fill_manual(values = c("red", "green"),
+                    name = "DEATH_EVENT",
+                    labels = c("False", "True")) +
+  scale_x_continuous(breaks = seq(110, 150, 10)) +
+
+  geom_vline(xintercept = median(filter(HF_data, DEATH_EVENT == 0)$serum_sodium), linetype="longdash") +
+  geom_vline(xintercept = median(filter(HF_data, DEATH_EVENT == 1)$serum_sodium), linetype="longdash") + 
+  geom_text(label = "Median \nvalue \nfor \nSurvival", x = 137, y = 0.04, size = 3) + 
+  geom_text(label = "Median \nvalue \nfor \nDeath", x = 135.5, y = 0.08, size = 2.5) +
+  annotate(geom = "text",
+           x = min(HF_data$serum_sodium)+5, y = 0.1,
+           label = str_c("Survived Median: ", median(filter(HF_data, DEATH_EVENT == 0)$serum_sodium),
+                         "\nDead Median: ", median(filter(HF_data, DEATH_EVENT == 1)$serum_sodium))) +
+
+  labs(title = "Relationship: Serum Sodium vs DEATH EVENT") +
+  theme_minimal(base_size = 12) +
+  theme(legend.position = "bottom", legend.direction = "horizontal")
+
+X
+Y
+```
+
+Observation: The distribution of values of serum sodium is close to symmetric (bell-shape) even though there are some low values. There is some difference between the median values of dead and survived patients. 
+
+
+6. TIME (FOLLOW-UP PERIOD) vs DEATH EVENT
+```{r}
+t <- ggplot(HF_data, aes(x = time)) + 
+  geom_histogram(binwidth = 10, colour = "white", alpha = 0.5) +
+  geom_density(eval(bquote(aes(y = ..count.. * 10))), alpha = 0.25) +
+  scale_x_continuous(breaks = seq(0, 300, 50)) +
+  geom_vline(xintercept = median(HF_data$time), linetype="longdash") +
+  annotate(geom = "text",
+           x = max(HF_data$time)-30, y = 22,
+           label = str_c("Min.     : ", min(HF_data$time),
+                         "\nMedian : ", median(HF_data$time),
+                         "\nMean    : ", round(mean(HF_data$time), 1),
+                         "\nMax.    : ", max(HF_data$time))) +
+  labs(title = "Distribution of TIME") +
+  theme_minimal(base_size = 12)
+
+s <- ggplot(HF_data, aes(x = time, fill = DEATH_EVENT)) +
+  geom_density(alpha = 0.64) +
+  scale_fill_manual(values = c("red", "green"),
+                    name = "DEATH EVENT",
+                    labels = c("False", "True")) +
+  scale_x_continuous(breaks = seq(0, 300, 50)) +
+
+  geom_vline(xintercept = median(filter(HF_data, DEATH_EVENT == 0)$time), linetype="longdash") +
+  geom_vline(xintercept = median(filter(HF_data, DEATH_EVENT == 1)$time), linetype="longdash") + 
+  geom_text(label = "Median \nvalue \nfor \nSurvival", x = 172, y = 0.005, size = 3) + 
+  geom_text(label = "Median \nvalue \nfor \nDeath", x = 44.5, y = 0.005, size = 2.5) + 
+  annotate(geom = "text",
+           x = max(HF_data$time)-50, y = 0.008,
+           label = str_c("Survived Median: ", median(filter(HF_data, DEATH_EVENT == 0)$time),
+                         "\nDead Median: ", median(filter(HF_data, DEATH_EVENT == 1)$time))) +
+
+  labs(title = "Relationship: TIME vs DEATH EVENT") +
+  theme_minimal(base_size = 12) +
+  theme(legend.position = "bottom", legend.direction = "horizontal")
+
+t
+s
+```
+
+Observation: The distribution of follow-up periods is spread out. Peaks are not as loud as compared to some of the other variables. We also observe differences in the median 172 and 44.5 respectively. Patients that survive have long but gradual follow-up periods as compared to that of dead patients where follow-up periods are short.
+
+### Distribution of binary Features against target variable (DEATH EVENT)
+
+```{r}
+library(ggplot2)
+library(ggthemes)
+library(patchwork)
+one <- ggplot(HF_data, aes(y = reorder(anaemia, as.numeric(anaemia) * -1), fill = DEATH_EVENT)) +
+  geom_bar(position = "fill", show.legend = FALSE) + 
+  scale_y_discrete(labels  = c("True", "False"))+
+  labs(subtitle = "Anaemia") +
+  theme_minimal(base_size = 12) +
+  theme(axis.title = element_blank(), axis.text.x = element_blank())
+
+two <- ggplot(HF_data, aes(y = reorder(diabetes, as.numeric(diabetes) * -1), fill = DEATH_EVENT)) +
+  geom_bar(position = "fill", show.legend = FALSE) + 
+  scale_y_discrete(labels  = c("True", "False")) +
+  labs(subtitle = "Diabetes") +
+  theme_minimal(base_size = 12) +
+  theme(axis.title = element_blank(), axis.text.x = element_blank())
+
+three <- ggplot(HF_data, aes(y = reorder(high_blood_pressure, as.numeric(high_blood_pressure) * -1), fill = DEATH_EVENT)) +
+  geom_bar(position = "fill", show.legend = FALSE) + 
+  scale_y_discrete(labels  = c("True", "False")) +
+  labs(subtitle = "High blood pressure") +
+  theme_minimal(base_size = 12) +
+  theme(axis.title = element_blank(), axis.text.x = element_blank())
+
+four <- ggplot(HF_data, aes(y = reorder(sex, as.numeric(sex) * -1), fill = DEATH_EVENT)) +
+  geom_bar(position = "fill", show.legend = FALSE) + 
+  scale_y_discrete(labels  = c("Male", "Female")) +
+  labs(subtitle = "Sex") +
+  theme_minimal(base_size = 12) +
+  theme(axis.title = element_blank(), axis.text.x = element_blank())
+
+five <- ggplot(HF_data, aes(y = reorder(smoking, as.numeric(smoking) * -1), fill = DEATH_EVENT)) +
+  geom_bar(position = "fill", show.legend = TRUE) + 
+  scale_y_discrete(labels  = c("True", "False")) +
+  labs(subtitle = "Smoking") +
+  theme_minimal(base_size = 12) +
+  theme(axis.title = element_blank(), legend.position = "bottom", legend.direction = "horizontal") +
+  guides(fill = guide_legend(reverse = TRUE))
+
+(one + two + three + four + five + plot_layout(ncol = 1)) +
+  plot_annotation(title = "Distribution of binary Features against target variable (DEATH EVENT)")
+```
+
+We observe from the plot of distribution of binary features versus DEATH_EVENT that the difference between diabetes, sex and smoking is very small with respect to the target variable DEATH_EVENT. Meanwhile, that's not the case for anemia and high blood pressure. We observe some difference in their distribution with respect to the target variable DEATH_EVENT. As to whether the difference is significant or not, we are gonna find out. 
+
+
+
+### Correlation Matrix
+```{r}
+library(corrplot)
+
+HF.binary.features <- c("anaemia", "diabetes", "high_blood_pressure", "sex", "smoking", "DEATH_EVENT")
+heart_failure_data <- heart_failure_data %>% mutate_at(HF.binary.features, as.factor)
+
+# corrplot(cor(heart_failure_data), type = "upper", method="shade", order = "original", addCoef.col = T, shade.col=NA, tl.col="black", tl.srt=90, p.mat = cor.mtest(heart_failure_data)$p, insig = "p-value", sig.level = -1)
+```
+
+DATA SPLITTING INTO TRAINING AND TESTING DATA SETS
+```{r}
+library(rsample)
+library(readr)
+set.seed(555) 
+
+# dataH <- read_csv(str_c("heart_failure_clinical_records_dataset.csv"))
+heart_failure_data.split <- initial_split(heart_failure_data, prop = 0.8, strata = DEATH_EVENT)
+train.heart_failure_data <- training(heart_failure_data.split)
+test.heart_failure_data <- testing(heart_failure_data.split)
+head(train.heart_failure_data)
+head(test.heart_failure_data)
+
+HF_data.split <- initial_split(HF_data, prop = 0.8, strata = DEATH_EVENT)
+train.HF_data <- training(HF_data.split)
+test.HF_data <- testing(HF_data.split)
+head(train.HF_data)
+head(test.HF_data)
+
+```
+
+
+RANDOM FOREST CLASSIFICATION
+```{r}
+set.seed(555)
+library(ranger) # Random Forest library
+library(caret)  # Create Confusion Matrix
+
+RandF <- ranger(DEATH_EVENT ~ age + serum_creatinine + ejection_fraction,
+             data = train.heart_failure_data,
+             mtry = 3, num.trees = 400, 
+             write.forest = T, importance = "permutation")
+
+pred.RandF <- predict(RandF, data = test.heart_failure_data)$predictions
+confusionMatrix(pred.RandF, factor(test.heart_failure_data$DEATH_EVENT), positive = "1")
+
+# Binary variables
+RandF.binary <- ranger(DEATH_EVENT ~.,
+             data = train.heart_failure_data,
+             mtry = 2, num.trees = 400, 
+             write.forest = T, importance = "permutation")
+
+pred.RandF.binary <- predict(RandF.binary, data = test.heart_failure_data)$predictions
+confusionMatrix(pred.RandF.binary, factor(test.heart_failure_data$DEATH_EVENT), positive = "1")
+
+```
+
+
+DECISION TREE
+```{r}
+set.seed(444)
+library(rpart)      # for recursive partitioning and regression trees
+library(rpart.plot) # generates plots for recursive partitioning and regression trees
+# fit a rpart model
+DTree.fit <- rpart(DEATH_EVENT ~ .,
+              data = train.heart_failure_data, method = "class",
+              control=rpart.control(minsplit=10, minbucket=5, maxdepth=10, cp=0.03))
+
+# plotting rpart model using rpart.plot library
+prp(DTree.fit, type = 0)
+
+```
+
+
+
+
+
+
+
+
+
+
+LOGISTIC REGRESSION
+```{r}
+
+# logit.fit = glm(DEATH_EVENT ~ ., data = train, family = "binomial")
+# 
+# logit.predict = predict(logit.fit, newdata = test.x, type = "response")
+# 
+# logit.predict = ifelse(logit.predict > 0.5,1,0)
+# # confusionMatrix(as.factor(logit.predict), test.y$DEATH_EVENT)
+# 
+# table(test.y$DEATH_EVENT,logit.predict)
+# print(paste0("Accuracy of Logistic Regression is"," ", round(confusionMatrix(as.factor(logit.predict), as.factor(test.y$DEATH_EVENT))$overall[1],2)))
+
+```
+
+
+SUPPORT VECTOR MACHINE (SVM)
+```{r}
+
+
+```
+
+
+DECISION TREE
+```{r}
+
+
+```
+
+
+EXTREME GRADIENT BOOST
+```{r}
+
+
+```
+
+
+SURVIVAL ANALYSIS
+```{r}
+
+
+```
+
+
+K-NEAREST NEIGHBORS (KNN)
+```{r}
+
+```
+
+
+
+
+
